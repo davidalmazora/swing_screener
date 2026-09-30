@@ -1,66 +1,90 @@
 """
-SMC Pro - Screener
+Swing Screener - suelo en V/U, retroceso al primer suelo y W diaria
+Arrancar con:  streamlit run app.py
 """
 import warnings
+
 warnings.filterwarnings("ignore")
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
 
-st.set_page_config(page_title="SMC Pro", layout="wide")
-st.title("SMC Pro - Screener")
+import backtest  # noqa: E402
+import screener  # noqa: E402
+import universe  # noqa: E402
+from charts import setup_figure  # noqa: E402
+from data import load_daily, resample  # noqa: E402
+from patterns import daily_w_triggers, find_setups  # noqa: E402
 
-ticker = st.text_input("Ticker", "NVDA")
-if ticker:
-    df = yf.download(ticker, period="2y", auto_adjust=True, progress=False)
-    if df is not None and len(df) >= 200:
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-        df.index = pd.to_datetime(df.index)
-        o, h, l_, c = df["Open"].values, df["High"].values, df["Low"].values, df["Close"].values
-        sma50 = pd.Series(c).rolling(50).mean().values
-        sma200 = pd.Series(c).rolling(200).mean().values
-        trades = []
-        for j in range(220, len(df) - 2):
-            if c[j] <= o[j] or sma200[j] <= sma200[j-1] or sma50[j] <= sma50[j-1]:
-                continue
-            for i in range(max(0, j-30), j-5):
-                if c[i] >= o[i]: continue
-                zone_lo, zone_hi = l_[i], max(o[i], c[i])
-                ob = (zone_hi + zone_lo) / 2
-                if zone_lo < l_[j] <= zone_hi and abs(l_[j] - ob) / ob < 0.01:
-                    entry_price, sl = float(o[j+1]), float(zone_lo)
-                    risk = entry_price - sl
-                    if risk <= 0: continue
-                    tp = entry_price + risk * 2.5
-                    found_exit = False
-                    for k in range(j+1, len(df)):
-                        if l_[k] <= sl:
-                            trades.append((entry_price, sl, (sl - entry_price) / entry_price))
-                            found_exit = True
-                            break
-                        elif h[k] >= tp:
-                            trades.append((entry_price, tp, (tp - entry_price) / entry_price))
-                            found_exit = True
-                            break
-                    if not found_exit:
-                        ret = (c[-1] - entry_price) / entry_price
-                        trades.append((entry_price, c[-1], ret))
-                    break
-        if trades:
-            rets = [t[2] for t in trades]
-            pf = sum(r for r in rets if r > 0) / (abs(sum(r for r in rets if r <= 0)) or 0.001)
-            cum = 1.0
-            for r in rets: cum *= 1 + r
-            cagr = ((cum) ** 0.5 - 1) * 100
-            st.metric("Operaciones", len(trades))
-            st.metric("Profit Factor", f"{pf:.2f}")
-            st.metric("CAGR 2y", f"{cagr:.1f}%")
-            fig = go.Figure(data=[go.Candlestick(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"])])
-            fig.update_layout(height=450, xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
+st.set_page_config(page_title="Swing Screener", layout="wide")
+st.title("Swing Screener · V/U + retroceso + W diaria")
+
+with st.sidebar:
+    lista = st.selectbox("Lista de acciones", list(universe.LISTAS))
+    extra = st.text_input("O tickers separados por comas (p. ej. AMRN, DPRO, MTS.MC)")
+    tfs = st.multiselect("Temporalidad del patrón", ["W", "M"], default=["W", "M"],
+                         format_func={"W": "Semanal", "M": "Mensual"}.get)
+    refresh = st.checkbox("Forzar descarga de datos", value=False)
+
+
+def tickers():
+    if extra.strip():
+        return [t.strip().upper() for t in extra.split(",") if t.strip()]
+    return universe.LISTAS[lista]()
+
+
+tab_scan, tab_chart, tab_bt = st.tabs(["Screener", "Gráfico", "Backtest"])
+
+with tab_scan:
+    st.caption("ENTRADA_DIARIA: W diaria reciente dentro de la zona · EN_ZONA: retrocediendo hacia el "
+               "primer suelo, vigilar el diario · V_HECHA: primera parte hecha, esperando retroceso · "
+               "ROTURA: acaba de superar H1")
+    if st.button("Escanear", type="primary"):
+        with st.spinner("Descargando datos y buscando patrones..."):
+            st.session_state["scan"] = screener.run(tickers(), tuple(tfs), refresh)
+    res = st.session_state.get("scan")
+    if res is not None:
+        if res.empty:
+            st.info("Ninguna acción con el patrón.")
         else:
-            st.info("No hay señales SMC.")
-    else:
-        st.error("Datos insuficientes.")
+            st.dataframe(res.round(2), use_container_width=True, hide_index=True)
+            st.download_button("Descargar CSV", res.to_csv(index=False), "screener.csv")
+
+with tab_chart:
+    c1, c2 = st.columns([2, 1])
+    tk = c1.text_input("Ticker", "DPRO").strip().upper()
+    tf = c2.selectbox("Temporalidad", ["W", "M"], format_func={"W": "Semanal", "M": "Mensual"}.get)
+    if tk:
+        daily = load_daily([tk]).get(tk)
+        if daily is None:
+            st.error("No hay datos para ese ticker.")
+        else:
+            htf = resample(daily, tf)
+            setups = find_setups(htf, tf)
+            if not setups:
+                st.info("No se ha encontrado el patrón en este ticker.")
+            else:
+                labels = [f"{s.dates['l1'].date()} · L1 {s.l1:.2f} · {s.state}" for s in setups]
+                i = st.selectbox("Patrón", range(len(setups)), index=len(setups) - 1,
+                                 format_func=lambda k: labels[k])
+                s = setups[i]
+                st.pyplot(setup_figure(tk, daily, htf, s, daily_w_triggers(daily, s, htf.index)))
+
+with tab_bt:
+    st.caption("Resultados en R (múltiplos del riesgo). La lista de acciones es la actual, sin empresas "
+               "deslistadas, así que el resultado es algo optimista.")
+    retr = st.select_slider("Profundidad mínima del retroceso (de la subida L1→H1)",
+                            [0.382, 0.5, 0.618, 0.786], value=0.618)
+    if st.button("Lanzar backtest"):
+        with st.spinner("Calculando..."):
+            tr, res = backtest.run(tickers(), tuple(tfs), retr, refresh)
+        if tr.empty:
+            st.info("Sin operaciones.")
+        else:
+            st.subheader("Resumen por estrategia")
+            st.dataframe(res.round(2), use_container_width=True, hide_index=True)
+            st.subheader("Operaciones")
+            st.dataframe(tr.round(2), use_container_width=True, hide_index=True)
+            eq = tr[(tr.entrada == "w_diaria") & (tr.salida == "tp_h1")].sort_values("fecha_entrada")
+            if not eq.empty:
+                st.subheader("Curva en R · tu entrada (W diaria, objetivo H1)")
+                st.line_chart(pd.Series(eq["R"].cumsum().values, index=eq["fecha_entrada"]))
