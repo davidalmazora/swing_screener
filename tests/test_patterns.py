@@ -56,11 +56,30 @@ def test_w_diaria_en_zona():
     assert 620 < w.trigger_idx < 700
 
 
-def test_backtest_llega_a_h1():
-    df = synthetic(W_PATTERN)
-    tr = trades_for("SYN", df, "W")
-    main = [t for t in tr if t["entrada"] == "w_diaria" and t["salida"] == "tp_h1"]
-    assert len(main) == 1 and main[0]["motivo"] == "objetivo" and main[0]["R"] > 1
+# igual pero la subida final completa el espejo hasta superar R (120)
+W_FULL = W_PATTERN[:-1] + [(900, 125)]
+
+
+def test_backtest_salidas_espejo():
+    df = synthetic(W_FULL)
+    tr = {t["salida"]: t for t in trades_for("SYN", df, "W") if t["entrada"] == "w_diaria"}
+    for k in ("espejo_diario", "espejo_R", "mitad_mitad", "h1_ref"):
+        assert tr[k]["motivo"] == "objetivo", k
+    # D0 es el pico diario que inició la caída a "a": aquí coincide con H1 (~80)
+    assert abs(tr["espejo_diario"]["D0"] / 80 - 1) < 0.03
+    assert tr["espejo_R"]["R"] > tr["mitad_mitad"]["R"] > tr["espejo_diario"]["R"] > 1
+    assert abs(tr["espejo_R"]["precio_salida_medio"] / 120 - 1) < 0.03
+
+
+def test_mitad_mitad_break_even():
+    # llega a D0 (80) pero no a R y luego cae: la segunda mitad sale a break-even
+    df = synthetic(W_PATTERN[:-1] + [(760, 85), (900, 30)])
+    t = [t for t in trades_for("SYN", df, "W") if t["salida"] == "mitad_mitad"][0]
+    assert t["motivo"] == "break-even" and 0 < t["R"] < tr_espejo(t)
+
+
+def tr_espejo(t):
+    return (t["D0"] - t["precio_entrada"]) / (t["precio_entrada"] - t["stop"])
 
 
 def test_invalidado_si_pierde_el_suelo():

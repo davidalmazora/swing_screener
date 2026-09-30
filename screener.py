@@ -32,8 +32,10 @@ def scan_ticker(ticker, daily, tfs=("W", "M"), recent=6, fresh_days=10):
         close = float(daily["Close"].iloc[-1])
         row = {
             "ticker": ticker, "tf": tf, "estado": estado, "precio": close,
-            "R": s.r, "L1": s.l1, "H1": s.h1, "zona_hasta": s.zone_top, "invalida_bajo": s.floor,
+            "pico_R": s.r, "L1": s.l1, "H1": s.h1, "zona_hasta": s.zone_top, "invalida_bajo": s.floor,
             "dist_zona_%": (close / s.zone_top - 1) * 100,
+            "espejo_%": (close - s.l1) / (s.r - s.l1) * 100,  # 100% = vuelve al pico R
+            "simetria_t": (s.h1_idx - s.l1_idx) / max(1, s.l1_idx - s.r_idx),
             "fecha_R": s.dates["r"].date(), "fecha_L1": s.dates["l1"].date(),
             "fecha_H1": s.dates["h1"].date(),
         }
@@ -41,7 +43,8 @@ def scan_ticker(ticker, daily, tfs=("W", "M"), recent=6, fresh_days=10):
             stop = min(w.a, w.c) * 0.995
             row.update({
                 "W_fecha": daily.index[w.trigger_idx].date(), "W_cuello": w.b, "W_stop": stop,
-                "W_rr_a_H1": (s.h1 - close) / (close - stop) if close > stop else None,
+                "W_D0": w.d0,
+                "W_rr_a_R": (s.r - close) / (close - stop) if close > stop else None,
             })
         rows.append(row)
     return rows

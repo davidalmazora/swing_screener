@@ -37,7 +37,8 @@ tab_scan, tab_chart, tab_bt = st.tabs(["Screener", "Gráfico", "Backtest"])
 with tab_scan:
     st.caption("ENTRADA_DIARIA: W diaria reciente dentro de la zona · EN_ZONA: retrocediendo hacia el "
                "primer suelo, vigilar el diario · V_HECHA: primera parte hecha, esperando retroceso · "
-               "ROTURA: acaba de superar H1")
+               "ROTURA: acaba de superar H1 · Objetivos espejo: D0 en diario (mínimo) y el pico R "
+               "que inició el patrón (completo)")
     if st.button("Escanear", type="primary"):
         with st.spinner("Descargando datos y buscando patrones..."):
             st.session_state["scan"] = screener.run(tickers(), tuple(tfs), refresh)
@@ -84,7 +85,7 @@ with tab_bt:
             st.dataframe(res.round(2), use_container_width=True, hide_index=True)
             st.subheader("Operaciones")
             st.dataframe(tr.round(2), use_container_width=True, hide_index=True)
-            eq = tr[(tr.entrada == "w_diaria") & (tr.salida == "tp_h1")].sort_values("fecha_entrada")
+            eq = tr[(tr.entrada == "w_diaria") & (tr.salida == "espejo_R")].sort_values("fecha_entrada")
             if not eq.empty:
-                st.subheader("Curva en R · tu entrada (W diaria, objetivo H1)")
+                st.subheader("Curva en R · tu entrada (W diaria, objetivo el pico R)")
                 st.line_chart(pd.Series(eq["R"].cumsum().values, index=eq["fecha_entrada"]))

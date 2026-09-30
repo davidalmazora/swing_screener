@@ -48,6 +48,7 @@ def setup_figure(ticker, daily, htf, setup, trig=None, log=True):
         ax.annotate("L2", (s.l2_idx - lo, s.l2), ha="center", va="top", fontsize=10, color="navy",
                     xytext=(0, -8), textcoords="offset points")
     ax.axhline(s.h1, color="navy", linestyle=":", linewidth=1)
+    ax.axhline(s.r, color=UP, linestyle="--", linewidth=1, label="objetivo espejo (R)")
     tf_name = {"W": "semanal", "M": "mensual"}[s.tf]
     ax.set_title(f"{ticker} · {tf_name} · estado: {s.state}", loc="left")
     ax.legend(loc="upper right", fontsize=8)
@@ -55,7 +56,7 @@ def setup_figure(ticker, daily, htf, setup, trig=None, log=True):
     if trig:
         w = trig[0]
         ax2 = axes[1][0]
-        a = max(0, w.a_idx - 80)
+        a = max(0, min(w.a_idx - 80, w.d0_idx - 10 if w.d0_idx is not None else w.a_idx))
         b = min(len(daily), w.trigger_idx + 80)
         dv = daily.iloc[a:b]
         candles(ax2, dv)
@@ -66,10 +67,14 @@ def setup_figure(ticker, daily, htf, setup, trig=None, log=True):
                          xytext=(0, 8 if va == "bottom" else -8), textcoords="offset points")
         ax2.axvline(w.trigger_idx + 1 - a, color="green", linewidth=1, label="entrada")
         ax2.axhline(stop, color=DOWN, linestyle="--", linewidth=1, label="stop")
-        ax2.axhline(s.h1, color=UP, linestyle="--", linewidth=1, label="objetivo H1")
+        if w.d0:
+            ax2.axhline(w.d0, color=UP, linestyle="--", linewidth=1, label="objetivo espejo diario (D0)")
+            if w.d0_idx >= a:
+                ax2.annotate("D0", (w.d0_idx - a, w.d0), ha="center", va="bottom", fontsize=11,
+                             weight="bold", color="navy", xytext=(0, 8), textcoords="offset points")
         ax2.axhline(w.b, color="gray", linestyle=":", linewidth=1)
         ax2.set_title(f"diario · W en la zona · entrada {daily.index[min(w.trigger_idx + 1, len(daily) - 1)].date()}",
                       loc="left")
-        ax2.legend(loc="upper left", fontsize=8)
+        ax2.legend(loc="lower right", fontsize=8)
     fig.tight_layout()
     return fig

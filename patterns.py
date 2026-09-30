@@ -13,6 +13,10 @@ Gatillo (temporalidad diaria): dentro de la zona se forma una W diaria
 (suelo, rebote, segundo suelo no mucho más bajo) y el precio cierra por
 encima del rebote. Se entra en la apertura del día siguiente.
 
+Patrón espejo: la subida tiende a reflejar la caída, así que los objetivos
+son el pico que inició cada caída: D0 en diario (mínimo) y R en la
+temporalidad alta (el objetivo completo).
+
 Todo es causal: un pivote sólo existe a partir de la vela que lo confirma,
 así que el backtest no mira al futuro.
 """
@@ -194,6 +198,8 @@ class DailyW:
     c_idx: int  # segundo suelo diario
     c: float
     trigger_idx: int  # cierre por encima de b
+    d0_idx: int | None = None  # pico diario que inició la caída hasta a (objetivo espejo diario)
+    d0: float | None = None
 
 
 def daily_w_triggers(daily, setup, htf_index, pct=0.08, w_tol=0.03, pivots=None):
@@ -221,6 +227,8 @@ def daily_w_triggers(daily, setup, htf_index, pct=0.08, w_tol=0.03, pivots=None)
             if l[d] < low_w:
                 break
             if c[d] > b.price:
-                out.append(DailyW(a.idx, a.price, b.idx, b.price, cc.idx, cc.price, d))
+                d0 = piv[k - 3] if k >= 3 else None
+                out.append(DailyW(a.idx, a.price, b.idx, b.price, cc.idx, cc.price, d,
+                                  d0.idx if d0 else None, d0.price if d0 else None))
                 break
     return out
